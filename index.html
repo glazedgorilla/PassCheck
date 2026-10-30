@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PassCheck</title>
+<style>
+:root{
+  --paper:#e9eff3; --ink:#12263a; --muted:#53697c; --card:#ffffff; --line:#c9d6df;
+  --bad:#c2332b; --warn:#b7791f; --good:#1f7a4d; --accent:#0e6f7a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+  display:flex;justify-content:center;padding:36px 20px}
+main{width:100%;max-width:700px}
+h1{font-size:2.2rem;margin:0 0 6px;letter-spacing:-.02em}
+.sub{color:var(--muted);line-height:1.5;margin:0 0 22px}
+
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+[hidden]{display:none!important}
+
+.field{position:relative}
+input{width:100%;font:600 1.1rem inherit;padding:15px;border:2px solid var(--line);border-radius:10px;
+  background:var(--card);color:var(--ink)}
+input{padding-right:84px}
+#toggle{position:absolute;right:8px;top:8px;bottom:8px;padding:0 14px;border:0;border-radius:7px;
+  background:var(--paper);color:var(--ink);font:600 .9rem inherit;cursor:pointer}
+
+
+.meter{display:flex;gap:6px;margin:18px 0 10px}
+.meter i{flex:1;height:8px;border-radius:4px;background:var(--line);transition:background .25s}
+.big{font-size:clamp(2rem,8vw,3.4rem);font-weight:800;line-height:1.05;letter-spacing:-.02em;margin:14px 0 4px}
+.big small{display:block;font-size:.95rem;font-weight:600;color:var(--muted);letter-spacing:0;margin-bottom:4px}
+.verdict{font-weight:700;font-size:1.15rem;margin:0 0 6px}
+
+.card{background:var(--card);border-left:6px solid var(--line);border-radius:10px;padding:14px 16px;margin-top:12px}
+.card b{display:block;margin-bottom:4px}
+.card p{margin:0;color:var(--muted);line-height:1.5}
+.card.bad{border-left-color:var(--bad)} .card.ok{border-left-color:var(--good)} .card.wait{border-left-color:var(--warn)}
+.card code{background:var(--paper);padding:2px 6px;border-radius:4px;color:var(--ink)}
+.card ul{margin:8px 0 0;padding-left:20px;line-height:1.6;color:var(--muted)}
+.note{margin-top:26px;font-size:.85rem;color:var(--muted);line-height:1.5}
+
+
+.sugg{background:var(--card);border-radius:12px;padding:18px 20px;margin-top:16px}
+.sugg h2{font-size:1.1rem;margin:0 0 4px}
+.sugg .hint{margin:0 0 12px;color:var(--muted);line-height:1.5;font-size:.95rem}
+.opt{border:2px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
+.opt .label{font-size:.9rem;color:var(--muted);margin:0 0 6px}
+.opt .pwtext{font:700 1.2rem ui-monospace,Menlo,Consolas,monospace;word-break:break-all;margin:0 0 6px;user-select:all}
+.opt .meta{font-size:.9rem;margin:0 0 10px;font-weight:600}
+.opt .acts{display:flex;gap:8px;flex-wrap:wrap}
+.opt .acts button{background:var(--card);color:var(--ink);border:2px solid var(--line);border-radius:8px;padding:8px 14px;font:600 .95rem inherit;cursor:pointer}
+.opt .acts button.use{background:var(--ink);color:#fff;border-color:var(--ink)}
+.suggfoot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+.suggfoot p{margin:0;color:var(--muted);font-size:.85rem;line-height:1.5;flex:1 1 260px}
+.suggfoot button{background:var(--card);color:var(--ink);border:2px solid var(--line);border-radius:8px;padding:8px 14px;font:600 .95rem inherit;cursor:pointer}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <h1>PassCheck</h1>
+  <p class="sub">Type a password to see how fast it could be cracked, whether it has leaked before, and how to make it stronger. Nothing you type is stored.</p>
+
+
+  <section id="panel-pw">
+    <div class="field">
+      <label for="pw" style="position:absolute;left:-9999px">Password</label>
+      <input id="pw" type="password" autocomplete="off" spellcheck="false" placeholder="Type a password to test">
+      <button id="toggle" type="button">Show</button>
+    </div>
+    <div class="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="big" id="crack" aria-live="polite"></div>
+    <p class="verdict" id="verdict"></p>
+    <div class="card" id="tips" hidden><b>How to improve it</b><ul id="tipList"></ul></div>
+    <div class="card" id="breach" hidden><b id="breachTitle"></b><p id="breachText"></p></div>
+
+
+    <div class="sugg" id="sugg" hidden>
+      <h2>Stronger versions of your password</h2>
+      <p class="hint" id="suggHint"></p>
+      <div id="suggList"></div>
+      <div class="suggfoot">
+        <p>Versions built from your own password are easier to remember, but a fully random one is safer. Do not reuse the same pattern on other accounts.</p>
+        <button type="button" id="moreSugg">Show other ideas</button>
+      </div>
+    </div>
+
+    <p class="note">Breach check privacy: only the first 5 characters of your password’s hash are sent out. Your real password never leaves this page. Needs internet.</p>
+  </section>
+
+</main>
+
+<script>
+/* ---------- PASSWORD CHECK ---------- */
+const COMMON = ["password","123456","12345678","qwerty","abc123","111111","iloveyou","admin","welcome",
+  "letmein","monkey","dragon","passw0rd","password1","password123","admin123","india123","krishna"];
+const SEQS = ["abcdefghijklmnopqrstuvwxyz","0123456789","qwertyuiopasdfghjklzxcvbnm"];
+const GUESSES_PER_SEC = 1e10;
+
+function analyse(pw){
+  const tips = [];
+  let common = false;
+  let pool = 0;                                   // how many different characters could be used
+  if(/[a-z]/.test(pw)) pool += 26;
+  if(/[A-Z]/.test(pw)) pool += 26;
+  if(/[0-9]/.test(pw)) pool += 10;
+  if(/[^a-zA-Z0-9]/.test(pw)) pool += 32;
+  let bits = pw.length * Math.log2(pool);         // bigger number = harder to guess
+
+  if(new Set(pw).size < pw.length / 2){ bits *= 0.6; tips.push("Avoid repeating the same characters."); }
+
+  const lower = pw.toLowerCase();
+  let hasSeq = false;
+  for(const s of SEQS){
+    for(let i = 0; i <= s.length - 3; i++){
+      if(lower.includes(s.substr(i, 3))) hasSeq = true;
+    }
+  }
+  if(hasSeq){ bits *= 0.7; tips.push("Avoid sequences like abc, 123 or qwerty."); }
+
+  const unleet = lower.replace(/0/g,"o").replace(/1/g,"i").replace(/3/g,"e").replace(/4/g,"a").replace(/5/g,"s").replace(/@/g,"a").replace(/\$/g,"s");
+  if(COMMON.includes(lower) || COMMON.includes(unleet)){
+    bits = Math.min(bits, 10);
+    common = true;
+    tips.unshift("This is one of the most common passwords. Attackers try it first.");
+  } else if(COMMON.some(w => w.length >= 5 && unleet.includes(w))){
+    bits *= 0.5;
+    tips.push("It contains a very common word. Swapping letters for numbers does not fool attackers.");
+  }
+
+  if(pw.length < 12) tips.push("Use at least 12 characters. Length matters more than symbols.");
+  if(!/[A-Z]/.test(pw) || !/[a-z]/.test(pw)) tips.push("Mix uppercase and lowercase letters.");
+  if(!/[0-9]/.test(pw)) tips.push("Add some numbers.");
+  if(!/[^a-zA-Z0-9]/.test(pw)) tips.push("Add a symbol such as ! or #.");
+  if(pw.length < 20) tips.push("Better idea: a passphrase of 4 or more random words, like “river-lamp-orbit-seven”.");
+
+  let level = 0;
+  if(bits >= 28) level = 1;
+  if(bits >= 40) level = 2;
+  if(bits >= 60) level = 3;
+  if(bits >= 80) level = 4;
+  return {seconds: Math.pow(2, bits) / GUESSES_PER_SEC / 2, level, tips, common};
+}
+
+function humanTime(sec){
+  if(sec < 1) return "instantly";
+  if(sec < 60) return Math.round(sec) + " seconds";
+  let v = sec / 60;   if(v < 60)   return Math.round(v) + " minutes";
+  v /= 60;            if(v < 24)   return Math.round(v) + " hours";
+  v /= 24;            if(v < 365)  return Math.round(v) + " days";
+  v /= 365;           if(v < 1e6)  return Math.round(v).toLocaleString() + " years";
+  if(v < 1e9)  return (v / 1e6).toFixed(1) + " million years";
+  if(v < 1e12) return (v / 1e9).toFixed(1) + " billion years";
+  return "longer than the age of the universe";
+}
+
+const LABELS = ["Very weak","Weak","Fair","Strong","Very strong"];
+const COLORS = ["var(--bad)","var(--bad)","var(--warn)","var(--good)","var(--accent)"];
+const $ = id => document.getElementById(id);
+
+function showPassword(pw){
+  const bars = document.querySelectorAll(".meter i");
+  if(!pw){
+    bars.forEach(b => b.style.background = "");
+    $("crack").innerHTML = ""; $("verdict").textContent = "";
+    $("tips").hidden = true; $("breach").hidden = true;
+    return;
+  }
+  const r = analyse(pw);
+  bars.forEach((b, i) => b.style.background = i <= r.level ? COLORS[r.level] : "");
+  $("crack").innerHTML = "<small>Could be cracked in about</small>" + humanTime(r.seconds);
+  $("crack").style.color = COLORS[r.level];
+  $("verdict").textContent = LABELS[r.level];
+  $("verdict").style.color = COLORS[r.level];
+  $("tipList").innerHTML = "";
+  r.tips.slice(0, 4).forEach(t => {
+    const li = document.createElement("li"); li.textContent = t; $("tipList").appendChild(li);
+  });
+  $("tips").hidden = r.tips.length === 0;
+}
+
+/* Breach check: hash the password, send only the first 5 characters to Have I Been Pwned */
+async function sha1Hex(text){
+  const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+}
+
+let latest = 0, timer;
+async function checkBreach(pw){
+  const mine = ++latest;
+  const box = $("breach");
+  box.hidden = false; box.className = "card wait";
+  $("breachTitle").textContent = "Checking breach databases…";
+  $("breachText").textContent = "";
+  try{
+    const hash = await sha1Hex(pw);
+    const prefix = hash.slice(0, 5), suffix = hash.slice(5);
+    const res = await fetch("https://api.pwnedpasswords.com/range/" + prefix);
+    if(!res.ok) throw new Error("bad response");
+    const text = await res.text();
+    if(mine !== latest) return;
+    let count = 0;
+    for(const line of text.split("\n")){
+      const [h, c] = line.trim().split(":");
+      if(h === suffix){ count = parseInt(c, 10); break; }
+    }
+    if(count > 0){
+      box.className = "card bad";
+      $("breachTitle").textContent = "Found in " + count.toLocaleString() + " breaches";
+      $("breachText").textContent = "This password has leaked before. Do not use it anywhere.";
+    } else {
+      box.className = "card ok";
+      $("breachTitle").textContent = "Not found in known breaches";
+      $("breachText").textContent = "Good sign, but strength still matters.";
+    }
+  } catch(e){
+    if(mine !== latest) return;
+    box.className = "card wait";
+    $("breachTitle").textContent = "Breach check unavailable";
+    $("breachText").textContent = "Could not reach the breach service. Check your internet connection.";
+  }
+}
+
+$("pw").addEventListener("input", e => {
+  const pw = e.target.value;
+  showPassword(pw);
+  clearTimeout(timer);
+  if(!pw){ latest++; $("sugg").hidden = true; return; }
+  timer = setTimeout(() => {
+    checkBreach(pw);
+    if(skipSuggest){ skipSuggest = false; } else { renderSuggestions(pw); }
+  }, 500);
+});
+$("toggle").addEventListener("click", () => {
+  const show = $("pw").type === "password";
+  $("pw").type = show ? "text" : "password";
+  $("toggle").textContent = show ? "Hide" : "Show";
+});
+
+
+/* ---------- SUGGESTIONS BASED ON THE USER'S OWN PASSWORD ---------- */
+
+// Pick a fair random number from 0 to n-1 using the browser's secure generator
+function randInt(n){
+  const limit = Math.floor(4294967296 / n) * n;
+  const arr = new Uint32Array(1);
+  do { crypto.getRandomValues(arr); } while(arr[0] >= limit);
+  return arr[0] % n;
+}
+let usedBits = 0;   // counts how much real randomness we add
+function pick(list){ usedBits += Math.log2(list.length); return list[randInt(list.length)]; }
+function randChars(count, set){
+  let out = "";
+  for(let i = 0; i < count; i++) out += pick(set);
+  return out;
+}
+
+const UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ", LOWER = "abcdefghijkmnopqrstuvwxyz";
+const DIGITS = "23456789", SYMBOLS = "!@#$%^&*-_+=?";
+const ALL = UPPER + LOWER + DIGITS + SYMBOLS;
+const LOOKALIKE = {a: "@", s: "$", i: "!", o: "0", e: "3"};
+
+// Make the first letter a capital
+function capFirst(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// Swap up to 2 letters for look-alike symbols (a becomes @, s becomes $ ...)
+function swapLetters(s){
+  const spots = [];
+  for(let i = 0; i < s.length; i++){
+    if(LOOKALIKE[s[i].toLowerCase()] && /[a-z]/i.test(s[i])) spots.push(i);
+  }
+  const chars = s.split("");
+  for(let k = 0; k < 2 && spots.length; k++){
+    const idx = spots.splice(randInt(spots.length), 1)[0];
+    chars[idx] = LOOKALIKE[chars[idx].toLowerCase()];
+  }
+  return chars.join("");
+}
+
+// Add the kinds of characters the password is missing
+function addMissing(s){
+  if(!/[a-z]/.test(s)) s += pick(LOWER);
+  if(!/[A-Z]/.test(s)) s += pick(UPPER);
+  if(!/[0-9]/.test(s)) s += pick(DIGITS);
+  if(!/[^a-zA-Z0-9]/.test(s)) s += pick(SYMBOLS);
+  return s;
+}
+
+// Keep adding random characters until it is long and strong enough
+const BASE_GUESS_BITS = 20;   // an attacker can guess your original word and our tricks fairly easily
+function strengthen(s){
+  s = addMissing(s);
+  while((s.length < 16 || usedBits + BASE_GUESS_BITS < 60) && s.length < 26) s += randChars(2, ALL);
+  return s;
+}
+function levelFromBits(bits){
+  if(bits >= 80) return 4;
+  if(bits >= 60) return 3;
+  if(bits >= 40) return 2;
+  if(bits >= 28) return 1;
+  return 0;
+}
+
+function buildVariants(pw){
+  const base = pw.trim();
+  const mid = Math.floor(base.length / 2);
+  const styles = [
+    {label: "Your password with look-alike symbols and a random ending",
+     make: () => strengthen(capFirst(swapLetters(base)) + randChars(4, DIGITS + SYMBOLS))},
+    {label: "Your password wrapped in a random start and end",
+     make: () => strengthen(randChars(3, UPPER + DIGITS) + "-" + capFirst(base) + "-" + randChars(3, LOWER + SYMBOLS))},
+    {label: "Your password split in the middle with random characters",
+     make: () => strengthen(capFirst(base.slice(0, mid)) + randChars(3, DIGITS + SYMBOLS) + base.slice(mid) + randChars(3, ALL))}
+  ];
+  return styles.map(s => {
+    usedBits = 0;
+    const text = s.make();
+    return {label: s.label, text, bits: usedBits + BASE_GUESS_BITS};
+  });
+}
+
+function makeRandom(){
+  usedBits = 0;
+  const chars = [pick(UPPER), pick(LOWER), pick(DIGITS), pick(SYMBOLS)];
+  while(chars.length < 16) chars.push(pick(ALL));
+  for(let i = chars.length - 1; i > 0; i--){
+    const j = randInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return {text: chars.join(""), bits: usedBits};
+}
+
+let skipSuggest = false, showRandomFirst = false, lastPw = "";
+
+function renderSuggestions(pw){
+  lastPw = pw;
+  const box = $("sugg");
+  const r = analyse(pw);
+  if(pw.trim().length < 3 || r.level >= 4){ box.hidden = true; return; }
+
+  let options;
+  if(r.common){
+    $("suggHint").textContent = "Your password is one of the most common in the world, so versions built on it are still easy to guess. We suggest starting fresh instead.";
+    options = [1, 2, 3].map(() => ({label: "Fully random", ...makeRandom()}));
+  } else {
+    $("suggHint").textContent = "Pick one to keep something familiar but much harder to crack.";
+    options = buildVariants(pw);
+    if(showRandomFirst) options.unshift({label: "Fully random (safest)", ...makeRandom()});
+    options.push({label: "Fully random (safest)", ...makeRandom()});
+    options = options.slice(0, 4);
+  }
+
+  const list = $("suggList");
+  list.innerHTML = "";
+  options.forEach(opt => {
+    const level = levelFromBits(opt.bits);
+    const seconds = Math.pow(2, opt.bits) / GUESSES_PER_SEC / 2;
+    const div = document.createElement("div");
+    div.className = "opt";
+
+    const label = document.createElement("p"); label.className = "label"; label.textContent = opt.label;
+    const text = document.createElement("p"); text.className = "pwtext"; text.textContent = opt.text;
+    const meta = document.createElement("p"); meta.className = "meta";
+    meta.textContent = LABELS[level] + " · could be cracked in about " + humanTime(seconds);
+    meta.style.color = COLORS[level];
+
+    const acts = document.createElement("div"); acts.className = "acts";
+    const use = document.createElement("button"); use.type = "button"; use.className = "use"; use.textContent = "Use this";
+    const copy = document.createElement("button"); copy.type = "button"; copy.textContent = "Copy";
+    use.addEventListener("click", () => {
+      skipSuggest = true;
+      $("pw").value = opt.text;
+      $("pw").type = "text";
+      $("toggle").textContent = "Hide";
+      $("pw").dispatchEvent(new Event("input"));
+      $("pw").scrollIntoView({behavior: "smooth", block: "center"});
+    });
+    copy.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(opt.text); copy.textContent = "Copied"; }
+      catch(e){ copy.textContent = "Select it manually"; }
+      setTimeout(() => { copy.textContent = "Copy"; }, 1500);
+    });
+    acts.append(use, copy);
+    div.append(label, text, meta, acts);
+    list.appendChild(div);
+  });
+  box.hidden = false;
+}
+
+$("moreSugg").addEventListener("click", () => { showRandomFirst = false; renderSuggestions(lastPw); });
+
+</script>
+</body>
+</html>
